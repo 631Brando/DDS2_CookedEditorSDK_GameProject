@@ -1,0 +1,25 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "Gamepad Virtual Cursor",
+	"Description": "Control the system cursor with the gamepad",
+	"Category": "Input",
+	"CreatedBy": "Andrey Kharitonov",
+	"CreatedByURL": "",
+	"DocsURL": "https://docs.google.com/document/d/1mY2dHIXd22gPhubIthKHr6PT5ruRJ-eudF0V7vBoiRg/",
+	"MarketplaceURL": "com.epicgames.launcher://ue/marketplace/product/bfe49f64892245ce945d487f100c9843",
+	"SupportURL": "xford450@gmail.com",
+	"EngineVersion": "5.3.0",
+	"CanContainContent": false,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": true,
+	"Modules": [
+		{
+			"Name": "GamepadVirtualCursor",
+			"Type": "Runtime",
+			"LoadingPhase": "PreDefault"
+		}
+	]
+}

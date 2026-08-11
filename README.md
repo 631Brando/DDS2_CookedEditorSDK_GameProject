@@ -1,0 +1,2 @@
+# DDS2_CookedEditorSDK_GameProject
+mod

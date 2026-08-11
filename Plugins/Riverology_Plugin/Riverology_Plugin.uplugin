@@ -1,0 +1,28 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "2.2.0",
+	"FriendlyName": "RIVEROLOGY 2",
+	"Description": "Riverology is a term used in geography and Earth science to refer to the processes associated with rivers ,streams, the deposits and landforms created by them.",
+	"Category": "River",
+	"CreatedBy": "Galidar",
+	"CreatedByURL": "",
+	"DocsURL": "https://discord.gg/5SvJhHDEXk",
+	"MarketplaceURL": "com.epicgames.launcher://ue/marketplace/product/6f976ebef64c445c97feaa44ff4eda2d",
+	"SupportURL": "https://discordapp.com/invite/fVJmuWr",
+	"EngineVersion": "5.3.0",
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": true,
+	"Modules": [
+		{
+			"Name": "Riverology_Plugin",
+			"Type": "Runtime",
+			"LoadingPhase": "PreDefault",
+			"PlatformAllowList": [
+				"Win64"
+			]
+		}
+	]
+}
