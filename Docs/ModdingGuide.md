@@ -13,13 +13,24 @@ this one small example. Read this guide alongside the actual assets in the edito
 
 ## Setup
 
-1. Make sure you have all required software installed (Unreal Engine 5.3, Visual Studio w/ the
-   game dev workload, UE4SS if you're building a logic mod).
-2. Download the mod template from the [Files page](https://www.nexusmods.com/drugdealersimulator2/mods/91?tab=files)
-   and extract the ZIP.
-3. Open `DrugDealerSimulator2.uproject`. If prompted to rebuild project files, click **Yes**.
-4. In the editor, go to `Content/MODS` — every mod folder lives here, including the
-   `EXAMPLEMOD_P` example this guide walks through.
+Full setup instructions are in the [README](../README.md) — do that first. The short version:
+
+1. Install the prerequisites: the **modified UE 5.3.2 ("ModKit") engine**, Visual Studio 2022 with
+   the *Game development with C++* workload, and [UE4SS](https://github.com/UE4SS-RE/RE-UE4SS) if
+   you're building a logic mod. **Stock Unreal Engine will not work** — the SDK depends on engine
+   changes that mount the game's cooked containers and load a premade asset registry. Without them
+   your Content Browser comes up empty.
+2. Get the SDK and switch it to your engine build: right-click `DrugDealerSimulator2.uproject` →
+   **Switch Unreal Engine version** → pick your ModKit build. The checked-in `EngineAssociation` is
+   a GUID for someone else's source build and won't match yours.
+3. Edit `GameInstallDirectory.txt` in the project root to point at your own game's pak folder
+   (the one holding the `.utoc`/`.ucas` files). It ships with the default Steam path.
+4. Open `DrugDealerSimulator2.uproject`. If prompted to rebuild project modules, click **Yes**.
+   The first open is slow — it's mounting and indexing the whole retail game.
+5. In the editor, go to `Content/MODS` — every mod folder lives here, including the
+   `EXAMPLEMOD_P` example this guide walks through. You should also see the game's own content
+   (`/Game/DataTables`, `/Game/Blueprints`, …). If `Content/MODS` is there but the game's folders
+   aren't, step 3 is wrong.
 
 ## How DDS2 mods load
 
@@ -62,7 +73,7 @@ whatever you like (`Label_EXAMPLE` in this example). Set:
 - **Chunk Id** → a unique number not used by another installed mod, suggested range **1000–9999**
   (this example uses `9999`) — just enter 4 random numbers like `2575`. This is what buckets your
   content into its own pak chunk when the game cooks, and it's what you'll filter by when sorting
-  packaged output later (Step 7).
+  packaged output later (Step 6).
 
 You only need to create this once per mod; you won't touch it again unless you're troubleshooting
 packaging.
@@ -153,6 +164,21 @@ The verified process:
 4. Whichever kind of mod you're shipping, **the mod folder name and the output filenames must all
    end in `_P`** — that suffix is what makes both logic and content patches load correctly.
 
+
+## Testing in the editor
+
+UE4SS is a runtime injector for the shipped game — **it does not run in PIE**. Nothing spawns your
+`ModActor` when you hit Play in the editor, so a logic mod that looks completely silent in PIE may
+still be fine in the packaged game.
+
+To exercise the logic before packaging, drag `ModActor` into the level manually (or spawn it) so
+`BeginPlay` fires. Just remember that's a test-only placement: the real mod relies on UE4SS
+spawning it, and you don't want a stray placed copy in anything you ship.
+
+Keep test-only assets out of your mod folder entirely. Anything inside it gets swept up by the
+PrimaryAssetLabel's *Label Assets In My Directory*, so a scratch mesh or a debug widget left in
+there ships to everyone who installs your mod. Park that work in a folder outside
+`Content/MODS/YourModName_P/`.
 
 ## Common mistakes
 
