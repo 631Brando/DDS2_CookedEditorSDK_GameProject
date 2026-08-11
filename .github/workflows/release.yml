@@ -1,0 +1,72 @@
+name: Release
+
+# Manual only - run it from the Actions tab when you actually want to cut a release.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag for this release, e.g. v1.0.0 (created if it doesn't exist)"
+        required: true
+        type: string
+      title:
+        description: "Release title (defaults to the tag)"
+        required: false
+        type: string
+      prerelease:
+        description: "Mark as a pre-release"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the commit being released
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build source archive
+        id: archive
+        run: |
+          set -euo pipefail
+          ZIP="DDS2_CookedEditorSDK_${TAG}.zip"
+
+          # git archive emits exactly the tracked files, so anything .gitignore'd
+          # (Binaries/, Intermediate/, Saved/, DerivedDataCache/, .vs/) cannot leak in.
+          # The prefix gives a clean top-level folder when the zip is extracted.
+          git archive --format=zip --prefix="DDS2_CookedEditorSDK/" -o "$ZIP" HEAD
+
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+          echo "Archived $(unzip -l "$ZIP" | tail -1)"
+          ls -lh "$ZIP"
+        env:
+          TAG: ${{ inputs.tag }}
+
+      - name: Publish release
+        run: |
+          set -euo pipefail
+          ARGS=(--generate-notes --target "$GITHUB_SHA")
+
+          if [ -n "$TITLE" ]; then
+            ARGS+=(--title "$TITLE")
+          else
+            ARGS+=(--title "$TAG")
+          fi
+
+          if [ "$PRERELEASE" = "true" ]; then
+            ARGS+=(--prerelease)
+          fi
+
+          gh release create "$TAG" "$ZIP" "${ARGS[@]}"
+          echo "Released: $(gh release view "$TAG" --json url --jq .url)"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          TITLE: ${{ inputs.title }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          ZIP: ${{ steps.archive.outputs.zip }}
