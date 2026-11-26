@@ -11,6 +11,7 @@
 #include "GameFramework/Actor.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
+#include "PieOrdinaryCraft.h"
 
 // ---------------------------------------------------------------------------------------------
 // REDACTED - implementations withheld.
@@ -314,6 +315,32 @@ void UInventoryComponent::ChargePlayerMoney(FName CurrencyID, int32 Quantity)
 void UInventoryComponent::CountItems(FName ItemId, FName ItemSpecialType, bool SumAmounts, int32& OutNumber)
 {
     OutNumber = 0;
+    const FPieGridSize Grid = GetPieGridSize(*this);
+    if (!PieOrdinaryCraft::IsEnabled(GetOwner()) || (ItemId.IsNone() && ItemSpecialType.IsNone()) ||
+        !HasConsistentSlots(*this, Grid.Total))
+    {
+        return;
+    }
+    int64 Total = 0;
+    for (const auto& Entry : StoredItems)
+    {
+        const FInventoryObjectData& Stack = Entry.Value;
+        if (const FItemData* Row = FindOrdinaryItem(*this, Stack))
+        {
+            if ((!ItemId.IsNone() && Stack.ItemId == ItemId) ||
+                (!ItemSpecialType.IsNone() && Row->ItemSpecialType == ItemSpecialType))
+            {
+                Total += static_cast<int64>(Stack.CurStack) *
+                    (SumAmounts ? FMath::Max(0, Stack.CurUsesLeft) : 1);
+                if (Total >= MAX_int32)
+                {
+                    OutNumber = MAX_int32;
+                    return;
+                }
+            }
+        }
+    }
+    OutNumber = static_cast<int32>(Total);
 }
 
 bool UInventoryComponent::CheckIndexOccupied(int32 IndexToCheck)
@@ -400,6 +427,33 @@ bool UInventoryComponent::RemoveStackQuantity(FGuid StackGuid, int32 Quantity)
 void UInventoryComponent::RemoveItemQuantity(FName ItemId, int32 Quantity, int32& RemovedTotal)
 {
     RemovedTotal = 0;
+    const FPieGridSize Grid = GetPieGridSize(*this);
+    if (!PieOrdinaryCraft::IsEnabled(GetOwner()) || ItemId.IsNone() || Quantity <= 0 ||
+        !HasConsistentSlots(*this, Grid.Total))
+    {
+        return;
+    }
+    for (auto It = StoredItems.CreateIterator(); It && RemovedTotal < Quantity; ++It)
+    {
+        FInventoryObjectData& Stack = It.Value();
+        if (Stack.ItemId != ItemId || !FindOrdinaryItem(*this, Stack))
+        {
+            continue;
+        }
+        const int32 Removed = FMath::Min(Stack.CurStack, Quantity - RemovedTotal);
+        Stack.CurStack -= Removed;
+        RemovedTotal += Removed;
+        if (Stack.CurStack == 0)
+        {
+            AssignedIndexes.Remove(Stack.IndexPlacement);
+            It.RemoveCurrent();
+        }
+    }
+    if (RemovedTotal > 0 && !BlockInventoryUpdate)
+    {
+        InventoryUpdated();
+        ItemRemoved(ItemId, RemovedTotal);
+    }
 }
 
 bool UInventoryComponent::UseStackItem(FGuid StackGuid)
@@ -492,7 +546,17 @@ void UInventoryComponent::SetBlockInventoryUpdate(bool BlockState)
 
 int32 UInventoryComponent::GetInventoryFreeSpace()
 {
-    return 0;
+    const FPieGridSize Grid = GetPieGridSize(*this);
+    if (!PieOrdinaryCraft::IsEnabled(GetOwner()) || !HasConsistentSlots(*this, Grid.Total))
+    {
+        return 0;
+    }
+    int32 Empty = Grid.Ordinary();
+    for (const auto& Slot : AssignedIndexes)
+    {
+        Empty -= Slot.Key < Grid.Ordinary() ? 1 : 0;
+    }
+    return Empty;
 }
 
 int32 UInventoryComponent::GetInventoryItemSpace(FName ItemId)
@@ -502,7 +566,34 @@ int32 UInventoryComponent::GetInventoryItemSpace(FName ItemId)
 
 int32 UInventoryComponent::GetInventoryStackSpace(FName ItemId)
 {
-    return 0;
+    const FPieGridSize Grid = GetPieGridSize(*this);
+    if (!PieOrdinaryCraft::IsEnabled(GetOwner()) || !HasConsistentSlots(*this, Grid.Total))
+    {
+        return 0;
+    }
+    FInventoryObjectData Probe;
+    Probe.ItemId = ItemId;
+    const FItemData* Row = FindOrdinaryItem(*this, Probe);
+    if (!Row)
+    {
+        return 0;
+    }
+    Probe.SubstanceContents = Row->DefaultSubContents;
+    if (!HasOrdinaryPayload(Probe))
+    {
+        return 0;
+    }
+    int64 Space = 0;
+    for (const auto& Entry : StoredItems)
+    {
+        const FInventoryObjectData& Stack = Entry.Value;
+        if (Stack.ItemId == ItemId && Stack.IndexPlacement < Grid.Ordinary() &&
+            Stack.CurHealth == 0.0f && Stack.CurUsesLeft == 0 && HasOrdinaryPayload(Stack))
+        {
+            Space += FMath::Max(0, Row->InventoryMaxStack - Stack.CurStack);
+        }
+    }
+    return static_cast<int32>(FMath::Min<int64>(Space, MAX_int32));
 }
 
 int32 UInventoryComponent::GetInventoryStackSpaceDynamic(FInventoryObjectData ObjectData)

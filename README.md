@@ -100,12 +100,28 @@ and clear their out-params. The module compiles and links, and that is enough to
 a real API surface to work with, but calling into these classes from C++ yields empty or zero
 results — the actual behaviour lives in the shipped game binary at runtime.
 
-`InventoryComponent.cpp` carries a header comment spelling this out; it applies module-wide. The
-two exceptions, which are original code rather than stubs, are:
+`InventoryComponent.cpp` documents the scope of the stubs. The SDK also contains original helpers:
 
 - `AppendDatatableHelper::AppendDataTables` — the DataTable merge helper mods use.
 - `PlayerCharacterMaster::Tick` — restores basic mouse-look in PIE by polling raw mouse delta off
   the controller, so testing does not depend on the game's Enhanced Input setup being wired up.
+- `-DDS2PIEInventoryTransfers` — enables ordinary whole-stack transfers, container stock
+  and inventory weight in authoritative standalone PIE.
+
+### Ordinary hideout crafting in PIE
+
+Start an isolated editor session with both `-DDS2PIEInventoryTransfers` and
+`-DDS2PIEOrdinaryCraft`. This enables ordinary stock counting and debits, free-slot
+and stack-space reads, hideout storage accounting, and the live crafting queue in
+authoritative standalone PIE. The station's existing Blueprint checks the output
+bin, retries when it is full, and acknowledges each completed lot.
+
+Use a disposable test profile with a known deterministic recipe that produces one
+ordinary item type, such as the DIY Table recipe `C-STASH-FOOD`. The native queue
+does not accept recipes with substance inputs or outputs, random outputs, waste,
+or additional feature and equipment requirements. Scope requests to supported
+recipes before the cooked request path debits ingredients. Cancellation, time
+catch-up, save/load, multiplayer and Shipping behavior are outside this test path.
 
 ---
 
