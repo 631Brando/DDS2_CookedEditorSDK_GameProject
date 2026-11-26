@@ -36,6 +36,9 @@ bool FPieInventoryTransfersTest::RunTest(const FString& Parameters)
     Config.BaseContainerSize = 2;
     Config.BaseConcealedSlots = 0;
     Configs->AddRow(TEXT("TEST"), Config);
+    Config.BaseContainerSize = 3;
+    Config.BaseConcealedSlots = 1;
+    Configs->AddRow(TEXT("TEST-PLAYER"), Config);
     UDataTable* Items = NewObject<UDataTable>(Owner);
     Items->RowStruct = FItemData::StaticStruct();
     FItemData Row;
@@ -52,6 +55,7 @@ bool FPieInventoryTransfersTest::RunTest(const FString& Parameters)
         Inventory->ConfigDatabase = Configs;
         Inventory->InventoryConfig = TEXT("TEST");
     }
+    Target->InventoryConfig = TEXT("TEST-PLAYER");
 
     FInventoryObjectData Stack;
     Stack.ItemId = TEXT("FIXTURE");
@@ -110,13 +114,22 @@ bool FPieInventoryTransfersTest::RunTest(const FString& Parameters)
     TestTrue(TEXT("Move to a free slot"), CanMove);
     TArray<FInventoryGridData> Grid;
     Target->GetInventoryGrid(Grid);
-    if (!TestEqual(TEXT("The grid projects both cells"), Grid.Num(), 2))
+    if (!TestEqual(TEXT("The player grid projects two ordinary cells and one concealed cell"), Grid.Num(), 3))
     {
         return false;
     }
     TestTrue(TEXT("The move preserves GUID and count"), Grid[0].Occupied &&
         Grid[0].ObjectData.StackGuid == ReceivedGuid && Grid[0].ObjectData.CurStack == 3);
     TestTrue(TEXT("The free cell retains its index"), !Grid[1].Occupied && Grid[1].ObjectData.IndexPlacement == 1);
+    TestTrue(TEXT("The concealed cell is projected"), Grid[2].Concealed && !Grid[2].Occupied);
+    TestEqual(TEXT("The configured concealed count remains visible"), Target->GetInventoryConceladSlotCount(), 1);
+    Target->AddSpecificItem(Stack, false, Left, 1, 2);
+    TestEqual(TEXT("Ordinary insertion cannot target the concealed cell"), Left, 1);
+    Target->MoveItem(ReceivedGuid, 2, 3, CanMove, Left);
+    TestFalse(TEXT("Ordinary move cannot target the concealed cell"), CanMove);
+    TestTrue(TEXT("Concealed cell refusal preserves both maps"),
+        Target->AssignedIndexes.Num() == 1 && Target->AssignedIndexes.FindRef(0) == ReceivedGuid &&
+        Target->StoredItems.FindRef(ReceivedGuid).CurStack == 3);
     return true;
 }
 

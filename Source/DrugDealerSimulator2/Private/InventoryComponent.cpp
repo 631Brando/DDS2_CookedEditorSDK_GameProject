@@ -41,7 +41,15 @@ bool PieTransfersEnabled()
 #endif
 }
 
-int32 GetPieSlotCount(const UInventoryComponent& Inventory)
+struct FPieGridSize
+{
+    int32 Total = 0;
+    int32 Concealed = 0;
+
+    int32 Ordinary() const { return Total - Concealed; }
+};
+
+FPieGridSize GetPieGridSize(const UInventoryComponent& Inventory)
 {
     const UWorld* World = Inventory.GetWorld();
     const AActor* Owner = Inventory.GetOwner();
@@ -50,17 +58,22 @@ int32 GetPieSlotCount(const UInventoryComponent& Inventory)
         Inventory.UnboundSize || !Inventory.ItemTypeRestriction.IsNone() ||
         !Inventory.WornClothes.IsEmpty() || !Inventory.ConfigDatabase)
     {
-        return 0;
+        return {};
     }
 
     const FContainerConfig* Config = Inventory.ConfigDatabase->FindRow<FContainerConfig>(
         Inventory.InventoryConfig, TEXT("Standalone PIE inventory"), false);
-    if (!Config || Config->BaseConcealedSlots != 0)
+    if (!Config)
     {
-        return 0;
+        return {};
     }
     const int64 Count = static_cast<int64>(Config->BaseContainerSize) + Inventory.CustomSizeBoost;
-    return Count > 0 && Count <= MAX_int32 ? static_cast<int32>(Count) : 0;
+    if (Count <= 0 || Count > MAX_int32 ||
+        Config->BaseConcealedSlots < 0 || Config->BaseConcealedSlots > Count)
+    {
+        return {};
+    }
+    return {static_cast<int32>(Count), Config->BaseConcealedSlots};
 }
 
 bool IsSlotInGrid(int32 Index, int32 SlotCount)
@@ -141,9 +154,9 @@ void UInventoryComponent::AddSpecificItem(FInventoryObjectData InventoryData, bo
     }
 
     Leftover = Quantity;
-    const int32 Slots = GetPieSlotCount(*this);
-    if (Quantity <= 0 || InventoryData.CurStack != Quantity || !IsSlotInGrid(IndexOverride, Slots) ||
-        !HasConsistentSlots(*this, Slots))
+    const FPieGridSize Grid = GetPieGridSize(*this);
+    if (Quantity <= 0 || InventoryData.CurStack != Quantity || !IsSlotInGrid(IndexOverride, Grid.Ordinary()) ||
+        !HasConsistentSlots(*this, Grid.Total))
     {
         return;
     }
@@ -216,7 +229,7 @@ void UInventoryComponent::CountItems(FName ItemId, FName ItemSpecialType, bool S
 
 bool UInventoryComponent::CheckIndexOccupied(int32 IndexToCheck)
 {
-    const int32 Slots = GetPieSlotCount(*this);
+    const int32 Slots = GetPieGridSize(*this).Total;
     return IsSlotInGrid(IndexToCheck, Slots) && HasConsistentSlots(*this, Slots) &&
         AssignedIndexes.Contains(IndexToCheck);
 }
@@ -230,8 +243,8 @@ void UInventoryComponent::MoveItem(FGuid ItemToMove, int32 TargetIndex, int32 Mo
         return;
     }
     StackLeft = MoveQuantity;
-    const int32 Slots = GetPieSlotCount(*this);
-    if (!IsSlotInGrid(TargetIndex, Slots) || !CheckStackQuantityExists(ItemToMove, MoveQuantity))
+    const FPieGridSize Grid = GetPieGridSize(*this);
+    if (!IsSlotInGrid(TargetIndex, Grid.Ordinary()) || !CheckStackQuantityExists(ItemToMove, MoveQuantity))
     {
         return;
     }
@@ -317,10 +330,11 @@ bool UInventoryComponent::CheckStackExists(FGuid StackGuid)
 
 bool UInventoryComponent::CheckStackQuantityExists(FGuid StackGuid, int32 Quantity)
 {
-    const int32 Slots = GetPieSlotCount(*this);
+    const FPieGridSize Grid = GetPieGridSize(*this);
     const FInventoryObjectData* Item = StoredItems.Find(StackGuid);
     // Refuse splits before the widget can debit the source. Only full stacks are supported.
-    if (Quantity <= 0 || !Item || Item->CurStack != Quantity || !HasConsistentSlots(*this, Slots))
+    if (Quantity <= 0 || !Item || Item->CurStack != Quantity ||
+        !IsSlotInGrid(Item->IndexPlacement, Grid.Ordinary()) || !HasConsistentSlots(*this, Grid.Total))
     {
         return false;
     }
@@ -330,7 +344,7 @@ bool UInventoryComponent::CheckStackQuantityExists(FGuid StackGuid, int32 Quanti
 
 int32 UInventoryComponent::GetInventoryLenght()
 {
-    return GetPieSlotCount(*this);
+    return GetPieGridSize(*this).Total;
 }
 
 int32 UInventoryComponent::GetQuickSlotNum()
@@ -409,22 +423,23 @@ int32 UInventoryComponent::GetInventoryStackSpaceDynamic(FInventoryObjectData Ob
 
 int32 UInventoryComponent::GetInventoryConceladSlotCount()
 {
-    return 0;
+    return GetPieGridSize(*this).Concealed;
 }
 
 void UInventoryComponent::GetInventoryGrid(TArray<FInventoryGridData>& OutGridData)
 {
     OutGridData.Reset();
-    const int32 Slots = GetPieSlotCount(*this);
-    if (!HasConsistentSlots(*this, Slots))
+    const FPieGridSize Grid = GetPieGridSize(*this);
+    if (!HasConsistentSlots(*this, Grid.Total))
     {
         return;
     }
-    OutGridData.SetNum(Slots);
-    for (int32 Index = 0; Index < Slots; ++Index)
+    OutGridData.SetNum(Grid.Total);
+    for (int32 Index = 0; Index < Grid.Total; ++Index)
     {
         FInventoryGridData& Cell = OutGridData[Index];
         Cell.ObjectData.IndexPlacement = Index;
+        Cell.Concealed = Index >= Grid.Ordinary();
         if (const FGuid* Guid = AssignedIndexes.Find(Index))
         {
             Cell.ObjectData = StoredItems.FindChecked(*Guid);
@@ -440,7 +455,7 @@ int32 UInventoryComponent::GetInventoryDamagedSlotCount()
 
 bool UInventoryComponent::CompareItemsStackable(FInventoryObjectData Object1, FInventoryObjectData Object2)
 {
-    return GetPieSlotCount(*this) > 0 && FindOrdinaryItem(*this, Object1) &&
+    return GetPieGridSize(*this).Ordinary() > 0 && FindOrdinaryItem(*this, Object1) &&
         FindOrdinaryItem(*this, Object2) && IsSameStackPayload(Object1, Object2);
 }
 
