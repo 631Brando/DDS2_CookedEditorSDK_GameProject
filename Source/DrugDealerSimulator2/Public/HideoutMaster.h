@@ -71,6 +71,8 @@ public:
     
     AHideoutMaster(const FObjectInitializer& ObjectInitializer);
 
+    virtual void Tick(float DeltaSeconds) override;
+
     UFUNCTION(BlueprintCallable, BlueprintImplementableEvent)
     void WasteGenerated(float WasteAmount);
     
@@ -220,6 +222,10 @@ public:
     
     UFUNCTION(BlueprintCallable)
     void AddCraftingQueue(FName RecipieID, FGuid CraftingStationGuid, int32 Quantity, float EqSpeedMultiplier, bool InsertFirst);
-    
+
+private:
+    // Acknowledgements belong to the current synchronous Blueprint output attempt.
+    FGuid PieOutputAttempt;
+    bool bPieCraftTickInProgress = false;
 };
 

@@ -91,17 +91,52 @@ On stock UE both are absent: you get an empty Content Browser and unresolvable g
 reflected types to bind against — matching class names, properties, function signatures, and
 `UFUNCTION`/`UPROPERTY` metadata.
 
+Some C++ functionality in this SDK was reimplemented with AI assistance to support
+Play-in-Editor (PIE) testing. The pull requests document which behaviors were tested
+and under what conditions.
+
 **The implementations are not included.** Function bodies are stubs that return defined values
 and clear their out-params. The module compiles and links, and that is enough to give Blueprints
 a real API surface to work with, but calling into these classes from C++ yields empty or zero
 results — the actual behaviour lives in the shipped game binary at runtime.
 
-`InventoryComponent.cpp` carries a header comment spelling this out; it applies module-wide. The
-two exceptions, which are original code rather than stubs, are:
+`InventoryComponent.cpp` documents the scope of the stubs. The SDK also contains original helpers:
 
 - `AppendDatatableHelper::AppendDataTables` — the DataTable merge helper mods use.
 - `PlayerCharacterMaster::Tick` — restores basic mouse-look in PIE by polling raw mouse delta off
   the controller, so testing does not depend on the game's Enhanced Input setup being wired up.
+- `-DDS2PIEInventoryTransfers` — enables ordinary whole-stack transfers, container stock
+  and inventory weight in authoritative standalone PIE.
+
+With `-DDS2PIEInventoryTransfers -DDS2PIEPlayerEquipment`, press **I** in standalone
+PIE to open the original character screen. On the tested starting outfit it showed
+four ordinary inventory cells, one concealed cell and six clothing slots. With
+`-DDS2PIEOrdinaryCraft` also enabled, the same screen showed the recorded substance
+and its mass inside an owned hideout. The visibility test prepared the stock through
+the hideout's AddSubstance function. The quickbar test seeded two single-use items in slot 1
+and pressed the ordinary **1** key twice.
+
+To test ordinary stack splitting, launch standalone PIE with both
+`-DDS2PIEInventoryTransfers` and `-DDS2PIEOrdinaryStackSplits`. Drag a stack with the
+right mouse button to an empty ordinary slot, choose a quantity, and confirm in the
+game's inventory dialog. This also supports compatible occupied slots when the whole
+requested quantity fits. The original inventory Blueprint submits the move, and the
+SDK updates the source and destination before refreshing either grid.
+
+### Ordinary hideout crafting in PIE
+
+Start an isolated editor session with both `-DDS2PIEInventoryTransfers` and
+`-DDS2PIEOrdinaryCraft`. This enables ordinary stock counting and debits, free-slot
+and stack-space reads, hideout storage accounting, and the live crafting queue in
+authoritative standalone PIE. The station's existing Blueprint checks the output
+bin, retries when it is full, and acknowledges each completed lot.
+
+Use a disposable test profile with a known deterministic recipe that produces one
+ordinary item type, such as the DIY Table recipe `C-STASH-FOOD`. The native queue
+does not accept recipes with substance inputs or outputs, random outputs, waste,
+or additional feature and equipment requirements. Scope requests to supported
+recipes before the cooked request path debits ingredients. Cancellation, time
+catch-up, save/load, multiplayer and Shipping behavior are outside this test path.
 
 ---
 
