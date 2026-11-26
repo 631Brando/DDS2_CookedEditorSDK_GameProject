@@ -99,11 +99,16 @@ bool HasConsistentSlots(const UInventoryComponent& Inventory, int32 SlotCount)
     return true;
 }
 
+bool HasOrdinaryPayload(const FInventoryObjectData& Item)
+{
+    return !Item.ItemId.IsNone() && Item.ItemId != TEXT("DYN-SUBSTANCE-PACK") &&
+        Item.SubstanceContents.SubstanceID.IsNone() && !Item.SubstanceContents.MixGuid.IsValid() &&
+        Item.SubstanceContents.GramAmount == 0.0f && FMath::IsFinite(Item.CurHealth);
+}
+
 const FItemData* FindOrdinaryItem(const UInventoryComponent& Inventory, const FInventoryObjectData& Item)
 {
-    if (!Inventory.ItemDatabase || Item.ItemId.IsNone() || Item.ItemId == TEXT("DYN-SUBSTANCE-PACK") ||
-        !Item.SubstanceContents.SubstanceID.IsNone() || Item.SubstanceContents.MixGuid.IsValid() ||
-        Item.SubstanceContents.GramAmount != 0.0f || !FMath::IsFinite(Item.CurHealth))
+    if (!Inventory.ItemDatabase || !HasOrdinaryPayload(Item))
     {
         return nullptr;
     }
@@ -139,6 +144,90 @@ UInventoryComponent::UInventoryComponent(const FObjectInitializer& ObjectInitial
 void UInventoryComponent::AddNewItem(FName ItemId, int32 Quantity, bool CheckOnly, const FString& TimeoutStatus, int32& Leftover)
 {
     Leftover = 0;
+    if (!PieTransfersEnabled())
+    {
+        return;
+    }
+
+    Leftover = FMath::Max(Quantity, 0);
+    const FPieGridSize Grid = GetPieGridSize(*this);
+    if (Quantity <= 0 || IsPlayerInventory || !HasConsistentSlots(*this, Grid.Total))
+    {
+        return;
+    }
+
+    FInventoryObjectData NewStack;
+    NewStack.ItemId = ItemId;
+    const FItemData* Row = FindOrdinaryItem(*this, NewStack);
+    if (!Row)
+    {
+        return;
+    }
+    if (ItemConvertionDatabase)
+    {
+        if (ItemConvertionDatabase->GetRowStruct() != FAutoItemConvertion::StaticStruct())
+        {
+            return;
+        }
+        const FAutoItemConvertion* Conversion = ItemConvertionDatabase->FindRow<FAutoItemConvertion>(
+            ItemId, TEXT("Standalone PIE stock"), false);
+        if (Conversion && Conversion->InstantItemConvertion)
+        {
+            return;
+        }
+    }
+
+    NewStack.CurHealth = Row->InventoryMaxHealth;
+    NewStack.CurUsesLeft = Row->InventoryMaxUses;
+    NewStack.ItemTimeoutStatus = TimeoutStatus;
+    NewStack.SubstanceContents = Row->DefaultSubContents;
+    if (!HasOrdinaryPayload(NewStack))
+    {
+        return;
+    }
+
+    // Fill compatible stacks first, then allocate free ordinary cells.
+    for (int32 Index = 0; Index < Grid.Ordinary() && Leftover > 0; ++Index)
+    {
+        const FGuid* Guid = AssignedIndexes.Find(Index);
+        if (!Guid)
+        {
+            continue;
+        }
+        FInventoryObjectData& Stack = StoredItems.FindChecked(*Guid);
+        if (Stack.CurStack < Row->InventoryMaxStack && IsSameStackPayload(Stack, NewStack))
+        {
+            const int32 Added = FMath::Min(Leftover, Row->InventoryMaxStack - Stack.CurStack);
+            Leftover -= Added;
+            if (!CheckOnly)
+            {
+                Stack.CurStack += Added;
+            }
+        }
+    }
+    for (int32 Index = 0; Index < Grid.Ordinary() && Leftover > 0; ++Index)
+    {
+        if (AssignedIndexes.Contains(Index))
+        {
+            continue;
+        }
+        const int32 Added = FMath::Min(Leftover, Row->InventoryMaxStack);
+        Leftover -= Added;
+        if (!CheckOnly)
+        {
+            NewStack.StackGuid = FGuid::NewGuid();
+            NewStack.IndexPlacement = Index;
+            NewStack.CurStack = Added;
+            StoredItems.Add(NewStack.StackGuid, NewStack);
+            AssignedIndexes.Add(Index, NewStack.StackGuid);
+        }
+    }
+
+    if (!CheckOnly && Leftover < Quantity && !BlockInventoryUpdate)
+    {
+        InventoryUpdated();
+        ItemAdded(ItemId, Quantity - Leftover);
+    }
 }
 
 void UInventoryComponent::AddNewItemArray(TArray<FName> ItemIds, TArray<int32> Quantities)
@@ -536,6 +625,27 @@ void UInventoryComponent::GetInventoryWeight(float& WeightTotal, FInventoryWeigh
 {
     WeightTotal = 0.0f;
     WeightDetails = FInventoryWeightDetails();
+    const FPieGridSize Grid = GetPieGridSize(*this);
+    if (!HasConsistentSlots(*this, Grid.Total))
+    {
+        return;
+    }
+    double TotalGrams = 0.0;
+    for (const auto& Entry : StoredItems)
+    {
+        const FInventoryObjectData& Stack = Entry.Value;
+        const FItemData* Row = FindOrdinaryItem(*this, Stack);
+        if (!Row || !FMath::IsFinite(Row->InventoryWeightGrams) || Row->InventoryWeightGrams < 0.0f)
+        {
+            return;
+        }
+        TotalGrams += static_cast<double>(Row->InventoryWeightGrams) * Stack.CurStack;
+    }
+    if (TotalGrams <= MAX_flt)
+    {
+        WeightTotal = static_cast<float>(TotalGrams);
+        WeightDetails.WeightItems = WeightTotal;
+    }
 }
 
 bool UInventoryComponent::HasInventorySpaceForTransaction(FName ItemId, int32 ItemCount, TArray<FGuid> SourceGuids, TArray<int32> SourceQuantities)

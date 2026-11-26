@@ -1,5 +1,6 @@
 #if WITH_EDITOR && WITH_DEV_AUTOMATION_TESTS
 
+#include "AutoItemConvertion.h"
 #include "ContainerConfig.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
@@ -44,6 +45,9 @@ bool FPieInventoryTransfersTest::RunTest(const FString& Parameters)
     FItemData Row;
     Row.ItemCategory = EItemCategory::Miscellaneous;
     Row.InventoryMaxStack = 3;
+    Row.InventoryWeightGrams = 125.0f;
+    Row.InventoryMaxHealth = 80.0f;
+    Row.InventoryMaxUses = 2;
     Items->AddRow(TEXT("FIXTURE"), Row);
 
     UInventoryComponent* Source = NewObject<UInventoryComponent>(Owner);
@@ -67,6 +71,7 @@ bool FPieInventoryTransfersTest::RunTest(const FString& Parameters)
     Source->AddSpecificItem(Stack, false, Left, Stack.CurStack, 0);
     if (!Enabled)
     {
+        Source->AddNewItem(TEXT("FIXTURE"), 2, false, TEXT("stock"), Left);
         TestTrue(TEXT("The default SDK leaves inventory untouched"),
             Source->StoredItems.IsEmpty() && Source->AssignedIndexes.IsEmpty());
         TestEqual(TEXT("The default SDK keeps the stub grid"), Source->GetInventoryLenght(), 0);
@@ -130,6 +135,47 @@ bool FPieInventoryTransfersTest::RunTest(const FString& Parameters)
     TestTrue(TEXT("Concealed cell refusal preserves both maps"),
         Target->AssignedIndexes.Num() == 1 && Target->AssignedIndexes.FindRef(0) == ReceivedGuid &&
         Target->StoredItems.FindRef(ReceivedGuid).CurStack == 3);
+
+    float Weight = -1.0f;
+    FInventoryWeightDetails Details;
+    Target->GetInventoryWeight(Weight, Details);
+    TestEqual(TEXT("Three player items weigh three times the row weight"), Weight, 375.0f);
+    TestEqual(TEXT("Weight projects into the ordinary-items field"), Details.WeightItems, Weight);
+
+    Source->AddNewItem(TEXT("FIXTURE"), 2, false, TEXT("stock"), Left);
+    TestEqual(TEXT("Ordinary stock insertion"), Left, 0);
+    const FGuid StockGuid = Source->AssignedIndexes.FindRef(0);
+    const FInventoryObjectData Stock = Source->StoredItems.FindRef(StockGuid);
+    TestTrue(TEXT("Stock default metadata"), StockGuid.IsValid() && Stock.CurStack == 2 &&
+        Stock.CurHealth == 80.0f && Stock.CurUsesLeft == 2 && Stock.ItemTimeoutStatus == TEXT("stock"));
+    Source->AddNewItem(TEXT("FIXTURE"), 5, true, TEXT("stock"), Left);
+    TestEqual(TEXT("Preview reports capacity left over"), Left, 1);
+    TestTrue(TEXT("Preview preserves existing stock"), Source->AssignedIndexes.Num() == 1 &&
+        Source->StoredItems.FindRef(StockGuid).CurStack == 2);
+    Source->AddNewItem(TEXT("FIXTURE"), 5, false, TEXT("stock"), Left);
+    TestEqual(TEXT("Overflow returns the exact unaccepted quantity"), Left, 1);
+    TestEqual(TEXT("Existing pile fills first"), Source->StoredItems.FindRef(StockGuid).CurStack, 3);
+    TestEqual(TEXT("Next free cell receives the other pile"),
+        Source->StoredItems.FindRef(Source->AssignedIndexes.FindRef(1)).CurStack, 3);
+    Source->GetInventoryWeight(Weight, Details);
+    TestEqual(TEXT("Two full piles are counted"), Weight, 750.0f);
+    Source->AddNewItem(TEXT("FIXTURE"), 2, false, TEXT("stock"), Left);
+    TestEqual(TEXT("Full inventory accepts nothing"), Left, 2);
+    Source->GetInventoryWeight(Weight, Details);
+    TestEqual(TEXT("Refusal preserves stock weight"), Weight, 750.0f);
+
+    TestTrue(TEXT("Free a fixture cell"), Source->RemoveStackQuantity(StockGuid, 3));
+    UDataTable* Conversions = NewObject<UDataTable>(Owner);
+    Conversions->RowStruct = FAutoItemConvertion::StaticStruct();
+    FAutoItemConvertion Conversion;
+    Conversion.InstantItemConvertion = true;
+    Conversions->AddRow(TEXT("FIXTURE"), Conversion);
+    Source->ItemConvertionDatabase = Conversions;
+    Source->AddNewItem(TEXT("FIXTURE"), 2, false, TEXT("stock"), Left);
+    TestEqual(TEXT("Instant conversion is refused"), Left, 2);
+    TestEqual(TEXT("Conversion refusal leaves the freed cell vacant"), Source->AssignedIndexes.Num(), 1);
+    Target->AddNewItem(TEXT("FIXTURE"), 1, false, TEXT("stock"), Left);
+    TestEqual(TEXT("Player grant remains outside this stock path"), Left, 1);
     return true;
 }
 
