@@ -91,6 +91,10 @@ On stock UE both are absent: you get an empty Content Browser and unresolvable g
 reflected types to bind against — matching class names, properties, function signatures, and
 `UFUNCTION`/`UPROPERTY` metadata.
 
+Some C++ functionality in this SDK was reimplemented with AI assistance to support
+Play-in-Editor (PIE) testing. The pull requests document which behaviors were tested
+and under what conditions.
+
 **The implementations are not included.** Function bodies are stubs that return defined values
 and clear their out-params. The module compiles and links, and that is enough to give Blueprints
 a real API surface to work with, but calling into these classes from C++ yields empty or zero
